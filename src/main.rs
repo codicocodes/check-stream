@@ -1,6 +1,8 @@
 use std::net::SocketAddr;
 use hyper::{service::{make_service_fn, service_fn}, Server};
 
+use dotenv::dotenv;
+
 use crate::store::Store;
 
 mod handlers;
@@ -11,6 +13,8 @@ pub mod router;
 
 #[tokio::main]
 async fn main() {
+    dotenv().ok();
+
     let addr = SocketAddr::from(([127, 0, 0, 1], 8000));
 
     let service = make_service_fn(|_| async { 

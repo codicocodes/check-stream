@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::{Mutex, Arc}};
+use std::{collections::HashMap, sync::{Mutex, Arc}, env};
 use hyper::{Request, Body, Response, StatusCode, Client, Method};
 use url::Url;
 use hyper::Uri;
@@ -16,12 +16,9 @@ const FAILED: &str = "{\"success\": false}";
 // const CHECK_TWITCH_ID = "41701337"
 
 // HACK: do not hardcode values
-const TWITCH_CLIENT_ID: &str = "";
-const TWITCH_CLIENT_SECRET: &str = "";
-const BASE_URL: &str = "http://localhost:8000";
 
 fn parse_query_params (req: Request<Body>) -> HashMap<String, String> {
-    let mut full_url: String = BASE_URL.to_owned();
+    let mut full_url: String = env::var("BASE_URL").unwrap().to_owned();
     full_url.push_str(&req.uri().to_string());
     let url_result = full_url.parse::<Url>();
     let parsed_url = match url_result {
@@ -40,10 +37,10 @@ fn get_token_url (code: &str) -> String {
         &grant_type=authorization_code\
         &code={}\
         &redirect_uri={}/login/callback",
-        TWITCH_CLIENT_ID,
-        TWITCH_CLIENT_SECRET,
+        env::var("TWITCH_CLIENT_ID").unwrap(),
+        env::var("TWITCH_CLIENT_SECRET").unwrap(),
         code,
-        BASE_URL,
+        env::var("BASE_URL").unwrap(),
     )
 }
 
@@ -90,7 +87,7 @@ pub async fn callback (ctx: Arc<Mutex<Store>>, req: Request<Body>) -> io::Result
                 .method(Method::GET)
                 .uri(uri)
                 .header("Authorization", format!("Bearer {}", access_token))
-                .header("Client-Id", TWITCH_CLIENT_ID)
+                .header("Client-Id", env::var("TWITCH_CLIENT_ID").unwrap())
                 .header("content-type", "application/json")
                 .body(Body::empty()).unwrap();
 

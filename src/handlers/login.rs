@@ -4,7 +4,7 @@ use hyper::{Response, Body};
 
 use crate::store::Store;
 
-const TWITCH_CLIENT_ID: &str = "";
+const TWITCH_CLIENT_ID: &str = "2dz4adkj1vomxtnhfk82nbzz4e3vnt";
 const BASE_URL: &str = "http://localhost:8000";
 
 fn get_login_url() -> String {
