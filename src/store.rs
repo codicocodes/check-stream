@@ -88,7 +88,6 @@ impl Store {
         return self
     }
 
-    // TODO: Handle refreshed_at
     pub fn save_token_data(&mut self, token_data: TokenData) -> io::Result<&Store> {
         ::serde_json::to_writer(&File::create(".token.json")?, &token_data)?;
         self.token_data = token_data;
@@ -98,7 +97,6 @@ impl Store {
         Ok(self)
     }
 
-    // TODO: Handle refreshed_at
     pub fn read_from_json() -> io::Result<Store> {
         let file = File::open(".token.json")?;
         let reader = BufReader::new(file);

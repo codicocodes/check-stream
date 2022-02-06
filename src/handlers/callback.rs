@@ -1,6 +1,5 @@
-use std::{collections::HashMap, sync::{Mutex, Arc}, env, fmt::Debug};
+use std::{collections::HashMap, sync::{Mutex, Arc}, env};
 use hyper::{Request, Body, Response, StatusCode, Client, Method};
-use serde::{Serialize, Deserialize};
 use url::Url;
 use hyper::Uri;
 use hyper_tls::HttpsConnector;
@@ -8,7 +7,7 @@ use hyper_tls::HttpsConnector;
 use crate::store::{Store, TokenData};
 use std::io;
 
-use super::utils::get_check_twitch_id;
+use super::utils::{get_check_twitch_id, User, bytes_to_user};
 
 /// JSON response Callback Succeeded 
 const SUCCESS: &str = "{\"success\": true}";
@@ -50,16 +49,6 @@ fn get_token_url (code: &str) -> String {
 }
 
 
-#[derive(Serialize, Deserialize, Debug)]
-struct User {
-    id: String,
-    login: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct UserResponse {
-    data: Vec<User>
-}
 
 async fn get_user(access_token: String) -> Option<User> {
     let uri = "https://api.twitch.tv/helix/users".parse::<Uri>().unwrap();
@@ -76,16 +65,7 @@ async fn get_user(access_token: String) -> Option<User> {
         .build::<_, hyper::Body>(https);
     let resp = client.request(req).await.unwrap();
     let bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();
-    let user_response_result: Result<UserResponse, serde_json::Error> = serde_json::from_slice(&bytes);
-
-    let mut user_response = match user_response_result {
-         Ok(user_response)=>  user_response,
-         Err(_)=> {
-            return  None
-         },
-    };
-
-    return user_response.data.pop()
+    bytes_to_user(bytes)
 }
 
 /// Callback route that redirects to twitch for oAuth2
@@ -122,7 +102,7 @@ pub async fn callback (ctx: Arc<Mutex<Store>>, req: Request<Body>) -> io::Result
             let maybe_user: Option<User> = get_user(token_data.access_token()).await;
             match maybe_user {
                 Some(user) => {
-                    if user.id != get_check_twitch_id() {
+                    if user.id() != get_check_twitch_id() {
                         return Ok(get_bad_request())
                     }
                 }
