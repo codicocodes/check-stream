@@ -90,7 +90,7 @@ pub async fn get_stream(ctx: Arc<Mutex<Store>>) -> io::Result<Response<Body>> {
     let stream = match stream_option {
         Some(stream) => stream,
         None => {
-            let resp = Response::new(Body::from("{\"isLive\": false}"));
+            let resp = Response::new(Body::from("{\"isOffline\": true}"));
             return Ok(resp) 
         }
     };
