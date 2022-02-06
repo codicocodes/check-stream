@@ -3,6 +3,8 @@ use hyper::{Response, Body, Method, Request, Uri, Client};
 use hyper_tls::HttpsConnector;
 use crate::store::Store;
 
+use super::utils::get_check_twitch_id;
+
 pub async fn get_stream(ctx: Arc<Mutex<Store>>) -> io::Result<Response<Body>> { 
     let should_refresh = ctx.lock().unwrap().should_refresh();
     if should_refresh {
@@ -15,8 +17,7 @@ pub async fn get_stream(ctx: Arc<Mutex<Store>>) -> io::Result<Response<Body>> {
         // unimplemented!()
     }
     // TODO: get the user data from the twitch api
-    let uri = "https://api.twitch.tv/helix/streams?user_login=codico".parse::<Uri>().unwrap();
-
+    let uri = format!("https://api.twitch.tv/helix/streams?user_id={}", get_check_twitch_id() ).parse::<Uri>().unwrap();
 
     let access_token = ctx.lock().unwrap().access_token();
 
@@ -35,8 +36,6 @@ pub async fn get_stream(ctx: Arc<Mutex<Store>>) -> io::Result<Response<Body>> {
     let resp = client.request(req).await.unwrap();
     let body_bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();
     let data =  String::from_utf8(body_bytes.to_vec()).unwrap();
-    // let should_refresh = ctx.lock().unwrap().should_refresh();
-    // let can_refresh = ctx.lock().unwrap().can_refresh();
     let resp = Response::new(Body::from(data));
     Ok(resp) 
 }

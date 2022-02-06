@@ -1,11 +1,14 @@
-use std::{collections::HashMap, sync::{Mutex, Arc}, env};
+use std::{collections::HashMap, sync::{Mutex, Arc}, env, fmt::Debug};
 use hyper::{Request, Body, Response, StatusCode, Client, Method};
+use serde::{Serialize, Deserialize};
 use url::Url;
 use hyper::Uri;
 use hyper_tls::HttpsConnector;
 
-use crate::store::Store;
+use crate::store::{Store, TokenData};
 use std::io;
+
+use super::utils::get_check_twitch_id;
 
 /// JSON response Callback Succeeded 
 const SUCCESS: &str = "{\"success\": true}";
@@ -13,9 +16,11 @@ const SUCCESS: &str = "{\"success\": true}";
 /// JSON response Callback Failed 
 const FAILED: &str = "{\"success\": false}";
 
-// const CHECK_TWITCH_ID = "41701337"
-
-// HACK: do not hardcode values
+fn get_bad_request() -> Response<Body> {
+    let mut bad_request = Response::new(Body::from(FAILED));
+    *bad_request.status_mut() = StatusCode::BAD_REQUEST;
+    return bad_request
+}
 
 fn parse_query_params (req: Request<Body>) -> HashMap<String, String> {
     let mut full_url: String = env::var("BASE_URL").unwrap().to_owned();
@@ -44,6 +49,45 @@ fn get_token_url (code: &str) -> String {
     )
 }
 
+
+#[derive(Serialize, Deserialize, Debug)]
+struct User {
+    id: String,
+    login: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct UserResponse {
+    data: Vec<User>
+}
+
+async fn get_user(access_token: String) -> Option<User> {
+    let uri = "https://api.twitch.tv/helix/users".parse::<Uri>().unwrap();
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(uri)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Client-Id", env::var("TWITCH_CLIENT_ID").unwrap())
+        .header("content-type", "application/json")
+        .body(Body::empty()).unwrap();
+
+    let https = HttpsConnector::new();
+    let client = Client::builder()
+        .build::<_, hyper::Body>(https);
+    let resp = client.request(req).await.unwrap();
+    let bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();
+    let user_response_result: Result<UserResponse, serde_json::Error> = serde_json::from_slice(&bytes);
+
+    let mut user_response = match user_response_result {
+         Ok(user_response)=>  user_response,
+         Err(_)=> {
+            return  None
+         },
+    };
+
+    return user_response.data.pop()
+}
+
 /// Callback route that redirects to twitch for oAuth2
 pub async fn callback (ctx: Arc<Mutex<Store>>, req: Request<Body>) -> io::Result<Response<Body>> {
     let hash_query = parse_query_params(req);
@@ -64,48 +108,34 @@ pub async fn callback (ctx: Arc<Mutex<Store>>, req: Request<Body>) -> io::Result
 
             let resp = client.request(req).await.unwrap();
             let bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();
-
-            // TODO: check user id before saving into store
-
-            match ctx.lock().unwrap().parse_bytes(bytes) {
-                Ok(_) => (),
-                Err(e) => {
-                    eprintln!("Error parsing token_data from bytes: {}", e);
-                    let mut bad_request = Response::new(Body::from(FAILED));
-                    *bad_request.status_mut() = StatusCode::BAD_REQUEST;
-                    return Ok(bad_request)
-                },
+            let token_data_result: Result<TokenData, serde_json::Error> = serde_json::from_slice(&bytes);
+            let token_data: TokenData  = match token_data_result {
+                Ok(token_data)  => token_data,
+                    Err(e) => {
+                        eprintln!("Error parsing token_data from bytes: {}", e);
+                        let mut bad_request = Response::new(Body::from(FAILED));
+                        *bad_request.status_mut() = StatusCode::BAD_REQUEST;
+                        return Ok(bad_request)
+                    },
             };
 
-            println!("Poisoned mutex? {}", ctx.is_poisoned());
-
-            let access_token = ctx.lock().unwrap().access_token();
-            // let uri = "https://api.twitch.tv/helix/streams?login=codico".parse::<Uri>().unwrap();
-            let uri = "https://api.twitch.tv/helix/users".parse::<Uri>().unwrap();
-
-            let req = Request::builder()
-                .method(Method::GET)
-                .uri(uri)
-                .header("Authorization", format!("Bearer {}", access_token))
-                .header("Client-Id", env::var("TWITCH_CLIENT_ID").unwrap())
-                .header("content-type", "application/json")
-                .body(Body::empty()).unwrap();
-
-            println!("Bearer {}", access_token);
-            let https = HttpsConnector::new();
-            let client = Client::builder()
-                .build::<_, hyper::Body>(https);
-            let resp = client.request(req).await.unwrap();
-
-            async fn body_to_string(req: Response<Body>) -> String {
-                let body_bytes = hyper::body::to_bytes(req.into_body()).await.unwrap();
-                String::from_utf8(body_bytes.to_vec()).unwrap()
+            let maybe_user: Option<User> = get_user(token_data.access_token()).await;
+            match maybe_user {
+                Some(user) => {
+                    if user.id != get_check_twitch_id() {
+                        return Ok(get_bad_request())
+                    }
+                }
+                None => return Ok(get_bad_request())
             }
 
-            let body_str = body_to_string(resp).await;
-
-            println!("{}", body_str);
-
+            match ctx.lock().unwrap().save_token_data(token_data) {
+                Ok(_) => (),
+                Err(e) => {
+                    eprintln!("Error saving token data: {}", e);
+                    return Ok(get_bad_request())
+                },
+            };
             Ok(Response::new(Body::from(SUCCESS)))
         }
         None => { 

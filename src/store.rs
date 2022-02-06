@@ -1,6 +1,4 @@
 use std::{time::{SystemTime, UNIX_EPOCH}, fs::File, io::{self, BufReader}, sync::{Mutex, Arc}};
-
-use hyper::body::Bytes;
 use serde::{Serialize, Deserialize};
 
 pub struct Store {
@@ -13,6 +11,12 @@ pub struct TokenData {
     access_token: String,
     refresh_token: String,
     expires_in: u64,
+}
+
+impl TokenData {
+    pub fn access_token(&self) -> String {
+        self.access_token.clone()
+    }
 }
 
 impl Store {
@@ -30,11 +34,10 @@ impl Store {
 
     pub fn make_store() -> Arc<Mutex<Store>> {
         let store_result = Store::read_from_json();
-        println!("Creating store....");
         match store_result {
             Ok(store) => Arc::new(Mutex::new(store)),
             Err(error) => {
-                eprintln!("error reading token data from file: {}", error);
+                eprintln!("error initializing store from file: {}", error);
                 println!("initializing empty store");
                 Arc::new(Mutex::new(Store::new()))
             }
@@ -85,22 +88,25 @@ impl Store {
         return self
     }
 
-    pub fn parse_bytes(&mut self, bytes: Bytes) -> io::Result<&Store> {
-        let token_data_result = serde_json::from_slice::<TokenData>(&bytes);
-        let token_data: TokenData = match token_data_result {
-            Ok(token_data)  => token_data,
-            Err(e) => return Err(std::io::Error::from(e)),
-        };
-        ::serde_json::to_writer(&File::create("token.json")?, &token_data)?;
+    // TODO: Handle refreshed_at
+    pub fn save_token_data(&mut self, token_data: TokenData) -> io::Result<&Store> {
+        ::serde_json::to_writer(&File::create(".token.json")?, &token_data)?;
         self.token_data = token_data;
-        return Ok(self)
+        let now = get_time();
+        ::serde_json::to_writer(&File::create(".refreshed_at.txt")?, &now)?;
+        self.set_refreshed_at(now);
+        Ok(self)
     }
 
+    // TODO: Handle refreshed_at
     pub fn read_from_json() -> io::Result<Store> {
-        let file = File::open("token.json")?;
+        let file = File::open(".token.json")?;
         let reader = BufReader::new(file);
         let token_data: TokenData = ::serde_json::from_reader(reader)?;
-        let store = Store{token_data, refreshed_at:0 };
+        let file = File::open(".refreshed_at.txt")?;
+        let reader = BufReader::new(file);
+        let refreshed_at: u64 = ::serde_json::from_reader(reader)?;
+        let store = Store{token_data, refreshed_at };
         Ok(store)
     } 
 } 
@@ -112,7 +118,6 @@ pub fn get_time() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn can_add_to_store() {
         let mut store = Store::new();

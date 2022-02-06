@@ -1,3 +1,4 @@
 /target
-token.json
+.token.json
+.refreshed_at.txt
 .env
